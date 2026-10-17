@@ -1,0 +1,45 @@
+const assert=require('node:assert/strict'),path=require('node:path');
+const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});try{
+ const page=await browser.newPage({viewport:{width:1280,height:800}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(()=>{window.requestAnimationFrame=()=>0;let seed=415;window.rngCalls=0;Math.random=()=>{window.rngCalls++;return window.forcedRoll??((seed=(seed*1664525+1013904223)>>>0)/4294967296)}});
+ if(process.env.GAME_URL?.startsWith('file:'))await page.route('https://**/*',route=>route.abort());
+ await page.goto((process.env.GAME_URL||'http://127.0.0.1:8765/LastFrontier%20V1.html')+'?dev=1',{timeout:60000});
+ console.log(await page.evaluate(()=>{
+  const checks=[],check=(value,label)=>{if(!value)throw Error(label);checks.push(label)},chance=expected=>Math.abs(survivorEventChance()-expected)<1e-9;
+  state='play';$('ov').style.display='none';WV.n=1;window.forcedRoll=.99;
+  check(chance(.3),'Initial chance is 30%');roundOpportunity();check(RUN.eventMisses===0&&chance(.3),'Ordinary waves do not grow chance');
+  WV.n=3;roundOpportunity();check(RUN.eventMisses===1&&chance(.6)&&RUN.events.length===0,'First third-round miss increases next chance to 60%');
+  const calls=window.rngCalls;roundOpportunity();check(window.rngCalls===calls&&RUN.eventMisses===1,'Repeated calls in one round do not roll or increase twice');
+  WV.n=4;roundOpportunity();check(chance(.6),'Intervening wave preserves the chance');
+  WV.n=6;roundOpportunity();check(RUN.eventMisses===2&&chance(.9),'Second miss increases next chance to 90%');
+  WV.n=9;roundOpportunity();check(RUN.eventMisses===3&&chance(1),'Third miss caps the next chance at 100%');
+  WV.n=12;const group=roundOpportunity();check(group&&RUN.events.length===1&&RUN.eventMisses===0&&chance(.3),'Guaranteed event actually spawns and resets chance to 30%');
+  check(state==='scene'&&CIN.on&&CIN.group===group,'Successful event starts the supplied V1 arrival cutscene');
+  const clock=TM;cutscene(5.3);check(TM===clock,'Arrival cutscene freezes the gameplay clock');
+  check(cinCap.textContent.includes('3 SURVIVORS')&&cinCap.textContent.includes(RUN.events[0].location),'Arrival caption gives group count and location');
+  const alertText=cinCap.textContent;msg('FOUND AMMO');check(cinCap.textContent===alertText,'Ordinary pickup messages do not overwrite the arrival caption');endScene();
+  WV.n=15;window.forcedRoll=.5;roundOpportunity();check(chance(.6)&&RUN.events.length===1,'Chance really resets: 50% roll misses the new 30%');
+  WV.n=18;roundOpportunity();check(chance(.3)&&RUN.events.length===2,'60% chance accepts a 50% roll and resets');endScene();
+  RUN.eventMisses=3;SHELTER.event.maxLiving=0;WV.n=21;const before=RUN.events.length,announcement=CIN.group.id;roundOpportunity();
+  check(RUN.events.length===before&&RUN.eventMisses===4&&chance(1),'A full shelter cannot create a false success or reset the guarantee');
+  check(CIN.group.id===announcement&&!CIN.on,'Failed spawn does not announce nonexistent survivors');
+  SHELTER.event.maxLiving=18;WV.n=24;roundOpportunity();check(RUN.events.length===3&&chance(.3),'A guarantee survives capacity blocking and resets when survivors arrive');endScene();
+  RUN.eventMisses=2;const authored=spawnSurvivorEvent('marcus',1,true);check(authored&&chance(.3),'An authored encounter also resets the miss streak');
+  cutscene(5.3);check(cinCap.textContent.includes('MARCUS')&&cinCap.textContent.includes('1 SURVIVOR'),'Singular arrival caption labels one survivor correctly');
+  RUN.eventMisses=2;check(!spawnSurvivorEvent('marcus',1,true)&&RUN.eventMisses===2,'Unavailable authored encounter does not reset chance');
+  const snapshot=shelterSnapshot();check(snapshot.run.eventMisses===2,'Serializable run snapshot retains the streak');
+  const fov=CIN.fov;check(cam.fov===58&&document.body.classList.contains('cin'),'Arrival retains its cinematic camera and HUD treatment');
+  return {checks:checks.length,progression:'30% → 60% → 90% → 100% → 30%',arrivalSeconds:CIN.T,originalFov:fov};
+ }));
+ await page.waitForFunction(()=>getComputedStyle(document.getElementById('cc')).opacity==='1',null,{polling:100});
+ await page.screenshot({path:path.resolve('tests/survivor-event-preview.png')});
+ const bounds=await page.locator('#cc').boundingBox();assert.ok(bounds.x>=0&&bounds.y>0&&bounds.x+bounds.width<=1280&&bounds.y+bounds.height<=800,'Desktop arrival caption fits the screen');
+ await page.setViewportSize({width:844,height:390});await page.evaluate(()=>{document.body.classList.add('t');rs();rd.render(sc,cam)});
+ await page.screenshot({path:path.resolve('tests/survivor-event-mobile-preview.png')});
+ const mobile=await page.locator('#cc').boundingBox();assert.ok(mobile.x>=0&&mobile.x+mobile.width<=844&&mobile.y+mobile.height<=390,'Mobile arrival caption fits the screen');
+ await page.evaluate(()=>{cutscene(5);if(CIN.on||state!=='play'||cam.fov!==74||document.body.classList.contains('cin'))throw Error('Cutscene did not restore gameplay');if(!$('ms').textContent.includes('TO RECRUIT'))throw Error('Missing rescue objective')});
+ assert.deepEqual(errors,[]);console.log('PASS survivor chance progression/reset/guarantee/capacity and supplied V1 arrival cutscene/captions/restoration');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exit(1)});

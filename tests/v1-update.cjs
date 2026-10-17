@@ -1,0 +1,51 @@
+const assert=require('node:assert/strict'),path=require('node:path');
+const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
+(async()=>{const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});try{
+ const page=await browser.newPage({viewport:{width:1280,height:800}}),errors=[],requests=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(r.url()));
+ await page.route('https://**/*',r=>r.abort());await page.addInitScript(()=>{requestAnimationFrame=()=>0;let seed=611;Math.random=()=>window.forcedRoll??((seed=(seed*1664525+1013904223)>>>0)/4294967296)});
+ await page.goto(process.env.GAME_URL||'file://'+path.resolve('LastFrontier V1.html'));await page.click('#ot');
+ await page.waitForFunction(()=>MUSIC.tracks&&Object.values(MUSIC.tracks).every(t=>!t.audio.paused&&t.audio.readyState>=3&&t.audio.currentTime>.1&&!t.error),null,{polling:100});
+ console.log(await page.evaluate(()=>{
+  const checks=[],check=(ok,label)=>{if(!ok)throw Error(label);checks.push(label)};
+  check(Object.keys(MUSIC.tracks).length===4&&MUSIC.tracks.event.audio.loop,'All four embedded OSTs decode and loop');
+  WV.n=3;WV.ph=1;const group=spawnSurvivorEvent('procedural',1,true);updateMusic(.05);
+  check(state==='scene'&&MUSIC.active&&MUSIC.mode==='event','Survivor cutscene starts event OST without pausing');
+  hadLock=false;cutscene(10.1);updateMusic(.05);check(state==='play'&&MUSIC.active&&MUSIC.mode==='event','OST continues after cutscene');
+  hurt(1);check(MUSIC.mode==='event'&&MUSIC.lastDamagedTime===0,'Player damage cannot override survivor-round music');
+  WV.ph=0;updateMusic(0);check(MUSIC.mode==='battle','Event end starts smooth crossfade to current combat track');MUSIC.lastDamagedTime=Infinity;updateMusic(0);check(MUSIC.mode==='roaming','Quiet break returns to roaming');
+  const survivor=SURVIVORS.find(s=>s.id===group.members[0]);recruitGroup(group);assignStation(survivor,'living');Object.assign(survivor,{x:-8,z:4.2,f:0,y:0});survivor.ai.target=null;survivor.ai.hurt=0;survivor.barricadeSupplies=0;
+  const table=BKM.map(m=>m.userData.bk).find(b=>b.n==='COFFEE TABLE');const scrap=MT.scrap;G.eq=2;brk(table);check(MT.scrap>scrap&&BROKEN.includes(table),'Breaking wood yields scrap and creates repair record');
+  const firstScrap=MT.scrap;brk(table);check(MT.scrap===firstScrap,'An already destroyed item cannot pay scrap twice');
+  survivorJobs(survivor,.1);survivorJobs(survivor,.1);const job=survivor.job;check(job.k==='REBUILD'&&job.o===table,'Survivor claims a destroyed item in their station');
+  Object.assign(survivor,{x:survivor.ai.stationGoal.x,z:survivor.ai.stationGoal.z});const progress=table.prog;survivor.ai.hurt=.5;survivorJobs(survivor,1);check(table.prog===progress,'Attack pauses hidden rebuilding progress');survivor.ai.hurt=0;
+  Object.assign(P,{x:3,z:-12,y:0,f:0});survivorJobs(survivor,table.need+1);check(!BROKEN.includes(table)&&table.hp===table.mx&&table.mesh.userData.batchRanges.length>0&&PR.includes(table.pr),'Rebuild restores health, collision and GPU geometry');
+  check(table.noScrap&&table.rebuildAfter>TM,'Rebuilt salvage cannot farm scrap and has a rebuild cooldown');
+  survivor.job={k:null,cd:0,t:0,o:null,home:null,to:0};survivorJobs(survivor,.1);check(survivor.job.k==='SCAV'&&survivor.job.goal,'Survivor chooses a random scavenging location');const goal=survivor.job.goal;Object.assign(survivor,{x:goal.x,z:goal.z,f:goal.f,y:goal.f*4});survivorJobs(survivor,.1);survivorJobs(survivor,9);check(survivor.scrap>=1&&survivor.scrap<=2,'Scavenging accumulates a small basket of scrap');
+  survivor.scrap=6;Object.assign(P,{x:survivor.x,z:survivor.z,f:survivor.f,y:survivor.y});SCRAP_EXPORT.remaining=6;const before=MT.scrap;extraTick(.1);check(MT.scrap===before+6&&survivor.scrap===0,'Player collects accumulated scrap by proximity');survivor.scrap=6;extraTick(.1);check(MT.scrap===before+6&&survivor.scrap===6,'Shared passive-income cap prevents shelter-size exploitation');
+  check(shelterSnapshot().survivors.length>0,'Jobs remain serializable without model cycles');
+  WV.n=5;roundHooks();check(DEALER.s&&DEALER.until===7&&DEALER.s.invuln&&DEALER.s.weapon==='smg','Dealer arrives on round five, stays two rounds, invulnerable SMG defender');const dh=DEALER.s.hp;hurtSurvivor(DEALER.s,100000);check(DEALER.s.hp===dh,'Dealer cannot be killed');
+  Object.assign(P,{x:DEALER.x,z:DEALER.z+1,f:0,y:0,yaw:0});P.pitch=Math.atan2(DEALER.s.view.parts.head.position.y*DEALER.s.view.g.scale.y-1.62,2.1);MT.scrap=500;openShop();const old=G.tl||0;buyShop(shopRows().findIndex(r=>r[0].startsWith('TOOL')));check(G.tl===old+1&&MT.scrap===410,'Dealer accepts scrap for permanent salvage tool upgrade');closeShop();state='play';
+  WV.n=6;roundHooks();check(DEALER.s,'Dealer stays through sixth round');WV.n=7;roundHooks();check(!DEALER.s,'Dealer leaves before round seven');
+  WV.n=8;window.forcedRoll=.49;{const before=BANDS.length;roundHooks();check(BANDS.length===before,'Bandits no longer arrive at the start of a wave');}WV.ph=1;WV.ts=0;for(const z of ZS)z.dead=1;step(.016);delete window.forcedRoll;check(BANDS.length>=2&&BANDS.length<=4,'Fourth-round 50% roll after the wave is beaten creates two to four armed bandits');
+  const b=BANDS[0],hp=P.hp;Object.assign(P,{x:3,z:-12,y:0,f:0,hp:100});Object.assign(b,{x:3,z:-14});check(nearestHuman({x:3,z:-14.1,y:0})===b,'Zombies target nearby bandits');
+  const gain=MT.scrap,pickups=PK.filter(p=>p.k==='ammo').length;hurtBandit(b,10000);check(b.dead&&MT.scrap===gain+5&&PK.filter(p=>p.k==='ammo').length===pickups+3,'Bandit death produces meaningful ammo drops and scrap');
+  for(const bandit of BANDS.slice())hurtBandit(bandit,10000);P.hp=100;
+  return {checks:checks.length,features:checks};
+ }));
+ console.log(await page.evaluate(()=>{
+  const check=(ok,label)=>{if(!ok)throw Error(label)},run=(hp,panic,seconds)=>{state='play';Object.assign(P,{hp,pan:panic});CONDITION.strength=CONDITION.clock=0;const samples=[];for(let i=0;i<seconds/.05;i++){updateCondition(.05);samples.push({opacity:+conditionVeil.style.opacity,height:rd.domElement.height,pulse:CONDITION.pulse,strength:CONDITION.strength})}return samples};
+  run(10,20,2);check(CONDITION.strength===0&&rd.domElement.height===RH,'Low health alone has no critical pulse');run(100,100,2);check(CONDITION.strength===0,'Panic alone has no critical pulse');
+  const samples=run(8,98,10.4),peaks=[0,104].map(start=>samples.slice(start,start+104).map((x,i)=>({x,i:start+i})).reduce((best,s)=>s.x.opacity>best.x.opacity?s:best));
+  check(Math.max(...samples.map(s=>s.opacity))>.8,'Critical pulse fades the whole screen nearly to black');check(Math.min(...samples.map(s=>s.height))<RH*.6,'Critical health progressively reduces true render resolution');check(rd.domElement.style.transform.includes('skewX'),'World rendering stretches and distorts');check(peaks.length>=2&&Math.abs((peaks[1].i-peaks[0].i)*.05-5.2)<.2,'Blackout pulses repeat roughly every five seconds');
+  run(24,75,2.6);const moderate=criticalRenderHeight(RH);run(3,100,2.6);check(criticalRenderHeight(RH)<moderate,'Lower health and higher panic intensify pixelation');rd.render(sc,cam);
+  return {pulseSeconds:5.2,minHeight:Math.min(...samples.map(s=>s.height)),baseHeight:RH,peakOpacity:Math.max(...samples.map(s=>s.opacity))};
+ }));
+ await page.waitForTimeout(350);assert.ok(await page.evaluate(()=>CRITICAL_FILTER.frequency.value<1800),'Actual output filter becomes muffled');await page.screenshot({path:path.resolve('tests/critical-pulse-preview.png')});
+ await page.evaluate(()=>{CONDITION.clock=5.2;CONDITION.audioAt=0;updateCondition(0)});await page.waitForTimeout(350);assert.ok(await page.evaluate(()=>CRITICAL_FILTER.frequency.value>13000),'Audio unmuffles between pulses');
+ await page.evaluate(()=>{P.hp=100;P.pan=10;for(let i=0;i<100;i++)updateCondition(.05)});assert.equal(await page.evaluate(()=>rd.domElement.height),await page.evaluate(()=>RH),'Healing restores baseline resolution');
+ await page.evaluate(()=>{state='play';P.hp=1;hurt(2)});assert.ok(await page.evaluate(()=>state==='dying'&&conditionVeil.style.opacity==='1'&&rd.domElement.style.opacity==='0'&&CONDITION.deathSoundPlayed),'Lethal damage instantly blacks out the screen and plays the death thud');
+ // AudioParam.value reflects DSP automation on the next audio processing block.
+ await page.waitForFunction(()=>AUDIO_OUTPUT.gain.value===0,null,{polling:10,timeout:500});
+ await page.screenshot({path:path.resolve('tests/instant-death-preview.png')});await page.evaluate(()=>{dying(.5);if(state!=='dying')throw Error('Blackout too brief');dying(.61)});assert.equal(await page.evaluate(()=>state),'over');await page.click('#ot');await page.waitForFunction(()=>state==='menu',null,{polling:100});assert.equal(await page.evaluate(()=>rd.domElement.style.opacity),'','Restart restores screen');assert.deepEqual(errors,[]);assert.ok(!requests.some(url=>url.startsWith('http')),'Main game loads entirely offline');console.log('PASS V1 audit, offline embedded audio, economy/jobs/travel events, critical pulse/muffling/recovery, instant death and restart');
+ }finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});
